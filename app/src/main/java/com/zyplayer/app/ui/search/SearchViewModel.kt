@@ -20,10 +20,15 @@ class SearchViewModel : ViewModel() {
     private val _loading = MutableLiveData(false)
     val loading: LiveData<Boolean> = _loading
 
+    /** 是否已搜索过（用于空状态提示） */
+    var isSearched = false
+        private set
+
     /** 多源并行搜索 */
     fun search(keyword: String) {
         viewModelScope.launch {
             _loading.value = true
+            isSearched = true
             try {
                 val videos = withContext(Dispatchers.IO) {
                     repository.search(keyword)

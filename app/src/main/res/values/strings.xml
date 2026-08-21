@@ -35,4 +35,5 @@
     <string name="play_error">播放失败，请尝试切换线路或源</string>
     <string name="all_sources_failed">所有源加载失败\n请检查网络或添加可用源</string>
     <string name="no_sources_enabled">尚未启用任何源\n请在设置页添加源</string>
+    <string name="search_history">搜索历史</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.zyplayer.app.ui.search
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -9,8 +10,10 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
+import com.google.android.material.chip.Chip
 import com.zyplayer.app.R
 import com.zyplayer.app.databinding.FragmentSearchBinding
+import com.zyplayer.app.ui.detail.DetailActivity
 import com.zyplayer.app.ui.home.HomeAdapter
 
 class SearchFragment : Fragment() {
@@ -20,6 +23,10 @@ class SearchFragment : Fragment() {
 
     private lateinit var viewModel: SearchViewModel
     private lateinit var adapter: HomeAdapter
+
+    // 搜索历史
+    private val searchHistory = mutableListOf<String>()
+    private val MAX_HISTORY = 10
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -33,12 +40,18 @@ class SearchFragment : Fragment() {
 
         viewModel = ViewModelProvider(this).get(SearchViewModel::class.java)
 
+        // 点击跳转详情页（核心修复）
         adapter = HomeAdapter { video ->
-            Toast.makeText(requireContext(), video.name, Toast.LENGTH_SHORT).show()
+            DetailActivity.start(requireContext(), video)
         }
+
         binding.recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
         binding.recyclerView.adapter = adapter
 
+        // 加载搜索历史
+        loadSearchHistory()
+
+        // 回车键搜索
         binding.editSearch.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 doSearch()
@@ -46,16 +59,31 @@ class SearchFragment : Fragment() {
             } else false
         }
 
+        // 点击搜索按钮
         binding.btnSearch.setOnClickListener { doSearch() }
 
+        // 观察搜索结果
         viewModel.results.observe(viewLifecycleOwner) { videos ->
             adapter.submitList(videos)
-            binding.tvEmpty.visibility = if (videos.isEmpty()) View.VISIBLE else View.GONE
+            if (videos.isNotEmpty()) {
+                binding.tvEmpty.visibility = View.GONE
+                binding.tvEmpty.text = getString(R.string.no_data)
+            } else {
+                binding.tvEmpty.visibility = View.VISIBLE
+                binding.tvEmpty.text = if (viewModel.isSearched) getString(R.string.no_data) else ""
+            }
         }
 
         viewModel.loading.observe(viewLifecycleOwner) { loading ->
             binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+            if (loading && adapter.itemCount == 0) {
+                binding.tvEmpty.text = getString(R.string.loading)
+                binding.tvEmpty.visibility = View.VISIBLE
+            }
         }
+
+        // 点击搜索历史标签
+        // 用 OnClickListener 在 updateTags 里设置
     }
 
     private fun doSearch() {
@@ -64,7 +92,60 @@ class SearchFragment : Fragment() {
             Toast.makeText(requireContext(), "请输入搜索关键词", Toast.LENGTH_SHORT).show()
             return
         }
+        // 保存搜索历史
+        saveSearchHistory(keyword)
+        // 隐藏标签
+        binding.tagGroup.visibility = View.GONE
+        binding.tvHistoryLabel.visibility = View.GONE
+        // 执行搜索
         viewModel.search(keyword)
+    }
+
+    /** 加载搜索历史 */
+    private fun loadSearchHistory() {
+        val prefs = requireContext().getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+        val history = prefs.getString("history", "") ?: ""
+        searchHistory.clear()
+        if (history.isNotEmpty()) {
+            searchHistory.addAll(history.split(",").filter { it.isNotEmpty() })
+        }
+        updateTags()
+    }
+
+    /** 保存搜索历史 */
+    private fun saveSearchHistory(keyword: String) {
+        searchHistory.remove(keyword) // 去重，移到最前
+        searchHistory.add(0, keyword)
+        if (searchHistory.size > MAX_HISTORY) {
+            searchHistory.removeAt(searchHistory.lastIndex)
+        }
+        // 持久化
+        val prefs = requireContext().getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("history", searchHistory.joinToString(",")).apply()
+        updateTags()
+    }
+
+    /** 更新标签 */
+    private fun updateTags() {
+        if (searchHistory.isNotEmpty()) {
+            binding.tagGroup.visibility = View.VISIBLE
+            binding.tvHistoryLabel.visibility = View.VISIBLE
+            binding.tagGroup.removeAllViews()
+            val recent = searchHistory.take(8)
+            for (tag in recent) {
+                val chip = Chip(requireContext()).apply {
+                    text = tag
+                    isClickable = true
+                    isCheckable = false
+                    setOnClickListener {
+                        binding.editSearch.setText(tag)
+                        binding.editSearch.setSelection(tag.length)
+                        doSearch()
+                    }
+                }
+                binding.tagGroup.addView(chip)
+            }
+        }
     }
 
     override fun onDestroyView() {
