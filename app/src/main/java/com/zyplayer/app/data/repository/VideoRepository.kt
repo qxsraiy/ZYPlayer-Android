@@ -85,11 +85,16 @@ class VideoRepository(
     }
 
     /**
-     * 搜索（多源并行）
+     * 搜索（多源并行，带进度回调）
+     * @param onProgress 每次一个源完成时回调 (completed, total, found)
      */
-    suspend fun search(keyword: String): List<Video> = coroutineScope {
+    suspend fun search(
+        keyword: String,
+        onProgress: (completed: Int, total: Int, found: Int) -> Unit = { _, _, _ -> }
+    ): List<Video> = coroutineScope {
         val sources = sourceDao.getEnabledSourcesOnce()
         if (sources.isEmpty()) return@coroutineScope emptyList()
+        val total = sources.size
 
         val deferredList = sources.map { source ->
             async {
@@ -101,11 +106,15 @@ class VideoRepository(
             }
         }
 
+        var completed = 0
         val allVideos = mutableListOf<Video>()
         deferredList.forEach { deferred ->
-            allVideos.addAll(deferred.await())
+            val videos = deferred.await()
+            allVideos.addAll(videos)
+            completed++
+            onProgress(completed, total, allVideos.size)
         }
-        allVideos.distinctBy { it.key }.take(50)
+        allVideos.distinctBy { it.key }.take(100)
     }
 
     /**

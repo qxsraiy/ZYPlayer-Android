@@ -31,9 +31,10 @@
     <string name="delete_source">删除源</string>
     <string name="delete_confirm">确认删除此源？</string>
     <string name="confirm">确认</string>
-    <string name="load_more">加载更多</string>
+    <string name="load_more">显示更多</string>
     <string name="play_error">播放失败，请尝试切换线路或源</string>
     <string name="all_sources_failed">所有源加载失败\n请检查网络或添加可用源</string>
     <string name="no_sources_enabled">尚未启用任何源\n请在设置页添加源</string>
     <string name="search_history">搜索历史</string>
+    <string name="input_search_hint">请输入搜索关键词</string>
 </resources>

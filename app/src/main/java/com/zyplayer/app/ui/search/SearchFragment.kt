@@ -62,6 +62,22 @@ class SearchFragment : Fragment() {
         // 点击搜索按钮
         binding.btnSearch.setOnClickListener { doSearch() }
 
+        // 观察搜索进度
+        viewModel.progress.observe(viewLifecycleOwner) { text ->
+            if (text.isNotEmpty()) {
+                binding.tvProgress.text = text
+                binding.tvProgress.visibility = View.VISIBLE
+            } else {
+                binding.tvProgress.visibility = View.GONE
+            }
+        }
+
+        // 观察"显示更多"按钮
+        viewModel.showLoadMore.observe(viewLifecycleOwner) { show ->
+            binding.btnLoadMore.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        binding.btnLoadMore.setOnClickListener { viewModel.loadMore() }
+
         // 观察搜索结果
         viewModel.results.observe(viewLifecycleOwner) { videos ->
             adapter.submitList(videos)
@@ -89,7 +105,7 @@ class SearchFragment : Fragment() {
     private fun doSearch() {
         val keyword = binding.editSearch.text.toString().trim()
         if (keyword.isEmpty()) {
-            Toast.makeText(requireContext(), "请输入搜索关键词", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), R.string.input_search_hint, Toast.LENGTH_SHORT).show()
             return
         }
         // 保存搜索历史
@@ -97,6 +113,9 @@ class SearchFragment : Fragment() {
         // 隐藏标签
         binding.tagGroup.visibility = View.GONE
         binding.tvHistoryLabel.visibility = View.GONE
+        // 重置旧结果
+        adapter.submitList(emptyList())
+        binding.btnLoadMore.visibility = View.GONE
         // 执行搜索
         viewModel.search(keyword)
     }
