@@ -1,25 +1,21 @@
 package com.zyplayer.app.ui.play
 
 import android.annotation.SuppressLint
-import android.app.AlertDialog
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -30,16 +26,14 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.zyplayer.app.R
 import com.zyplayer.app.databinding.ActivityPlayBinding
-import com.zyplayer.app.util.M3u8Downloader
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.zyplayer.app.util.DownloadService
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 @OptIn(UnstableApi::class)
 class PlayActivity : AppCompatActivity() {
+
+    private val TAG = "ZYPlayer-Play"
 
     private lateinit var binding: ActivityPlayBinding
     private var player: ExoPlayer? = null
@@ -48,8 +42,6 @@ class PlayActivity : AppCompatActivity() {
     private var isFullscreen = false
 
     enum class PlayMode { DETECTING, EXO_PLAYER, WEB_VIEW }
-
-    private val downloadManager by lazy { getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -263,87 +255,58 @@ class PlayActivity : AppCompatActivity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
     }
 
-    /** 使用系统 DownloadManager 下载视频（支持 m3u8 分片下载与合并） */
+    /** 下载当前视频（m3u8 用前台服务下载，MP4 直链用系统 DownloadManager） */
+    @SuppressLint("SetTextI18n")
     private fun startDownload() {
         if (playUrl.isEmpty()) {
             Toast.makeText(this, R.string.play_error, Toast.LENGTH_SHORT).show()
             return
         }
-        val lower = playUrl.lowercase()
-        val name = intent.getStringExtra(EXTRA_NAME) ?: "video"
+        val displayName = intent.getStringExtra(EXTRA_NAME) ?: "video"
 
-        if (lower.contains(".m3u8")) {
-            // m3u8 用分片流下载器
-            showDownloadProgress(name)
-        } else {
-            // 直链用系统 DownloadManager
-            downloadDirect()
-        }
-    }
-
-    private fun downloadDirect() {
-        try {
-            val fileName = (intent.getStringExtra(EXTRA_NAME) ?: "video").replace("/", "_") +
-                "_" + System.currentTimeMillis() + ".mp4"
-            val request = DownloadManager.Request(Uri.parse(playUrl))
-                .setTitle(fileName)
-                .setDescription("ZYPlayer 视频下载")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                .setAllowedOverMetered(true)
-                .setAllowedOverRoaming(true)
-            downloadManager.enqueue(request)
-            Toast.makeText(this, R.string.download_started, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /** 显示 m3u8 下载进度对话框，在后台下载所有分片并合并 */
-    @SuppressLint("SetTextI18n")
-    private fun showDownloadProgress(videoName: String) {
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("下载中")
-            .setCancelable(false)
-            .create()
-
-        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
-        progressBar.max = 100
-        progressBar.progress = 0
-        val tvMsg = TextView(this).apply {
-            text = "正在解析视频分片..."
-            setPadding(40, 20, 40, 10)
-        }
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(tvMsg)
-            addView(progressBar)
-            setPadding(40, 20, 40, 30)
-        }
-        dialog.setView(layout)
-        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "后台下载") { _, _ -> dialog.dismiss() }
-        dialog.show()
-
-        CoroutineScope(Dispatchers.Main).launch {
-            val result = M3u8Downloader.download(
-                context = this@PlayActivity,
-                url = playUrl,
-                title = videoName,
-                onProgress = { done, total ->
-                    tvMsg.text = "下载中: $done / $total 分片"
-                    progressBar.max = total
-                    progressBar.progress = done
-                }
-            )
-            result?.let {
-                tvMsg.text = "下载完成: ${it.fileName}\n(${it.fileSize / 1024} KB)"
-                Toast.makeText(this@PlayActivity, "下载完成: ${it.fileName}", Toast.LENGTH_LONG).show()
-            } ?: run {
-                tvMsg.text = "下载失败，请重试"
-                Toast.makeText(this@PlayActivity, "下载失败", Toast.LENGTH_SHORT).show()
+        if (playUrl.contains(".m3u8", ignoreCase = true)) {
+            // m3u8 流媒体 → 前台服务下载（后台不中断，通知栏实时进度）
+            if (DownloadService.isDownloading(playUrl)) {
+                Toast.makeText(this, "该视频已在下载中，下拉通知栏查看进度", Toast.LENGTH_SHORT).show()
+                return
             }
-            dialog.setButton(AlertDialog.BUTTON_POSITIVE, "确定") { _, _ -> dialog.dismiss() }
+            ensureNotificationPermission()
+            DownloadService.start(this, playUrl, displayName)
+            Toast.makeText(this, "已开始后台下载，下拉通知栏查看进度", Toast.LENGTH_SHORT).show()
+        } else {
+            // 直链 → 系统 DownloadManager
+            startSystemDownload(playUrl, displayName)
+        }
+    }
+
+    /** Android 13+ 请求通知权限（否则前台服务通知不显示） */
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 200)
+            }
+        }
+    }
+
+    /** 使用系统 DownloadManager 下载直链视频 */
+    @SuppressLint("SetTextI18n")
+    private fun startSystemDownload(url: String, name: String) {
+        try {
+            val fileName = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80) + ".mp4"
+            val request = android.app.DownloadManager.Request(android.net.Uri.parse(url))
+                .setTitle(name)
+                .setDescription("正在下载视频")
+                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                    "ZYPlayer/$fileName"
+                )
+            val dm = getSystemService(android.app.DownloadManager::class.java)
+            dm.enqueue(request)
+            Toast.makeText(this, "已开始后台下载，通知栏查看进度", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e(TAG, "系统下载失败: ${e.message}", e)
+            Toast.makeText(this, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 

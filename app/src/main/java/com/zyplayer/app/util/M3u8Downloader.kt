@@ -15,15 +15,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * m3u8 视频下载器
- * 流程：获取 m3u8 → 解析分片列表 → 下载分片（支持AES-128加密解密）→ 合并为 .ts → 保存到下载目录
+ * m3u8 视频下载引擎（纯下载逻辑，无通知）
+ * 流程：获取 m3u8 → 解析分片列表 → 下载分片（支持AES-128解密）→ 合并为 .ts → 保存到下载目录
+ * 通知和前台服务由 [DownloadService] 管理
  */
 object M3u8Downloader {
 
@@ -41,19 +41,21 @@ object M3u8Downloader {
 
     /**
      * 下载 m3u8 视频
+     * @param context Context
      * @param url m3u8 地址
      * @param title 视频标题（用于命名文件）
-     * @param onProgress (已完成分片数, 总分片数)
+     * @param onProgress (已完成分片数, 总分片数) — 用于通知栏/UI更新
      * @return 下载结果（文件名/大小），失败返回 null
      */
     suspend fun download(
         context: Context,
         url: String,
         title: String,
-        onProgress: (done: Int, total: Int) -> Unit
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }
     ): Result? = withContext(Dispatchers.IO) {
         try {
             // 1. 获取 m3u8 内容
+            onProgress(0, 0)
             val m3u8Content = fetchText(url) ?: return@withContext null
 
             // 2. 如果是 master playlist（包含多个码率），选最大的子列表
@@ -72,6 +74,7 @@ object M3u8Downloader {
             if (!tempDir.exists()) tempDir.mkdirs()
 
             var done = 0
+            val total = parsed.segments.size
             // 分片并发下载（每批4个）
             val chunks = parsed.segments.chunked(CONCURRENCY)
             for (chunk in chunks) {
@@ -89,7 +92,7 @@ object M3u8Downloader {
                         if (data != null) {
                             File(tempDir, "seg_${String.format("%05d", done)}.ts").writeBytes(data)
                             done++
-                            onProgress(done, parsed.segments.size)
+                            onProgress(done, total)
                         }
                     }
                 }
@@ -131,7 +134,6 @@ object M3u8Downloader {
     private data class ParsedPlaylist(val segments: List<Segment>, val keyBytes: ByteArray?, val iv: ByteArray?)
 
     private fun resolveMediaPlaylist(baseUrl: String, content: String): String {
-        // 如果包含 #EXT-X-STREAM-INF，则是 master playlist，选最后一个（通常是最高码率）
         if (content.contains("#EXT-X-STREAM-INF")) {
             val urls = content.lineSequence()
                 .map { it.trim() }
@@ -155,7 +157,6 @@ object M3u8Downloader {
             val line = rawLine.trim()
             when {
                 line.startsWith("#EXT-X-KEY") -> {
-                    // 提取 KEY 信息：METHOD=AES-128, URI="xxx", IV=0x...
                     val method = Regex("METHOD=([^,]+)").find(line)?.groupValues?.get(1)
                     if (method == "AES-128") {
                         pendingKeyUri = Regex("URI=\"?([^\",]+)\"?").find(line)?.groupValues?.get(1)
@@ -163,13 +164,11 @@ object M3u8Downloader {
                         iv = ivHex?.let { hexToBytes(it) }
                     }
                 }
-                line.startsWith("#") -> { /* 其他标签忽略 */ }
+                line.startsWith("#") -> { }
                 line.isNotEmpty() -> {
-                    // 是分片 URL
                     val segUrl = resolveUrl(playlistUrl, line)
                     segments.add(Segment(index, segUrl))
                     index++
-                    // 需要密钥时，在这里或首次使用时加载
                     if (pendingKeyUri != null && keyBytes == null) {
                         keyBytes = fetchBytes(resolveUrl(playlistUrl, pendingKeyUri!!))
                         pendingKeyUri = null
@@ -181,7 +180,6 @@ object M3u8Downloader {
     }
 
     private fun ivFor(segIndex: Int, globalIv: ByteArray?): ByteArray {
-        // m3u8 规则：未指定 IV 时，默认 IV = 分片序号（大端序16字节）
         val iv = ByteArray(16)
         if (globalIv != null) {
             globalIv.copyInto(iv)
@@ -195,7 +193,6 @@ object M3u8Downloader {
         return iv
     }
 
-    // 解密 AES-128-CBC
     private fun decrypt(data: ByteArray, key: ByteArray, iv: ByteArray): ByteArray? {
         return try {
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
@@ -203,7 +200,7 @@ object M3u8Downloader {
             cipher.doFinal(data)
         } catch (e: Exception) {
             Log.e(TAG, "解密失败: ${e.message}")
-            data // 解密失败原样返回（可能是未加密的分片）
+            data
         }
     }
 
@@ -247,7 +244,6 @@ object M3u8Downloader {
         if (path.startsWith("/")) {
             return "${baseUri.scheme}://${baseUri.host}${path}"
         }
-        // 相对路径：取 base 的目录部分
         val basePath = base.substringBeforeLast("/", "")
         return "$basePath/$path"
     }
@@ -268,7 +264,6 @@ object M3u8Downloader {
         return try {
             val resolver = context.contentResolver
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+：用 MediaStore 写入 Downloads
                 val values = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                     put(MediaStore.Downloads.MIME_TYPE, "video/mp2t")
@@ -282,7 +277,6 @@ object M3u8Downloader {
                     return file.length()
                 }
             } else {
-                // Android 9 及以下：直接写外部存储
                 val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val zyDir = File(dir, "ZYPlayer")
                 if (!zyDir.exists()) zyDir.mkdirs()
