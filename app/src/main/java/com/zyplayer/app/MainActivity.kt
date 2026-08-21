@@ -9,6 +9,7 @@ import com.zyplayer.app.ui.home.HomeFragment
 import com.zyplayer.app.ui.search.SearchFragment
 import com.zyplayer.app.ui.settings.SettingsFragment
 import com.zyplayer.app.util.CacheManager
+import com.zyplayer.app.util.DisclaimerDialog
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,9 +28,27 @@ class MainActivity : AppCompatActivity() {
         // 首次启动初始化默认源
         CacheManager.ensureDefaultSources(this)
 
-        setupBottomNav()
-        if (savedInstanceState == null) {
-            switchFragment(homeFragment)
+        // 检查免责声明
+        if (!DisclaimerDialog.isAccepted(this)) {
+            DisclaimerDialog.show(this,
+                onAgree = {
+                    // 同意后正常进入应用
+                    setupBottomNav()
+                    if (savedInstanceState == null) {
+                        switchFragment(homeFragment)
+                    }
+                },
+                onExit = {
+                    // 不同意则退出应用
+                    finishAffinity()
+                }
+            )
+        } else {
+            // 已同意过，直接进入
+            setupBottomNav()
+            if (savedInstanceState == null) {
+                switchFragment(homeFragment)
+            }
         }
     }
 

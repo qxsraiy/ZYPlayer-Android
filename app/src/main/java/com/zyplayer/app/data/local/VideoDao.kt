@@ -19,7 +19,7 @@ interface VideoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(videos: List<Video>)
 
-    @Query("DELETE FROM videos WHERE key NOT IN (SELECT key FROM videos ORDER BY cachedAt DESC LIMIT :keepCount)")
+    @Query("DELETE FROM videos WHERE `key` NOT IN (SELECT `key` FROM videos ORDER BY cachedAt DESC LIMIT :keepCount)")
     suspend fun trimTo(keepCount: Int = 500)
 
     @Query("DELETE FROM videos")

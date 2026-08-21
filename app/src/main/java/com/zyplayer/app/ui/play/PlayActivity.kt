@@ -1,3 +1,5 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.zyplayer.app.ui.play
 
 import android.annotation.SuppressLint
