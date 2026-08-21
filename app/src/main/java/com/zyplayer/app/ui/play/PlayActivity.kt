@@ -5,7 +5,6 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -21,7 +20,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -32,6 +30,7 @@ import com.zyplayer.app.databinding.ActivityPlayBinding
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
+@OptIn(UnstableApi::class)
 class PlayActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPlayBinding
@@ -39,7 +38,6 @@ class PlayActivity : AppCompatActivity() {
     private var playUrl: String = ""
     private var currentMode: PlayMode = PlayMode.DETECTING
     private var isFullscreen = false
-    private var lastOrientation = Configuration.ORIENTATION_PORTRAIT
 
     enum class PlayMode { DETECTING, EXO_PLAYER, WEB_VIEW }
 
@@ -49,6 +47,9 @@ class PlayActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // 锁定竖屏，只有点击全屏才横屏
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         playUrl = intent.getStringExtra(EXTRA_URL) ?: ""
         val name = intent.getStringExtra(EXTRA_NAME) ?: ""
@@ -104,7 +105,6 @@ class PlayActivity : AppCompatActivity() {
 
     /** 初始化 ExoPlayer */
     @SuppressLint("SetTextI18n")
-    @OptIn(UnstableApi::class)
     private fun setupExoPlayer() {
         binding.tvLoading.visibility = View.GONE
         binding.webView.visibility = View.GONE
@@ -136,24 +136,8 @@ class PlayActivity : AppCompatActivity() {
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
 
-                // 监听视频尺寸 → 自动判断横竖屏
+                // 监听播放错误
                 exoPlayer.addListener(object : Player.Listener {
-                    override fun onVideoSizeChanged(videoSize: VideoSize) {
-                        super.onVideoSizeChanged(videoSize)
-                        if (!isFullscreen && videoSize.width > 0 && videoSize.height > 0) {
-                            // 自动根据视频格式旋转：横屏视频→横屏，竖屏视频→竖屏
-                            val landscape = videoSize.width > videoSize.height
-                            val target = if (landscape) Configuration.ORIENTATION_LANDSCAPE
-                            else Configuration.ORIENTATION_PORTRAIT
-                            lastOrientation = target
-                            requestedOrientation = if (landscape) {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                            } else {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            }
-                        }
-                    }
-
                     override fun onPlayerError(error: PlaybackException) {
                         if (currentMode == PlayMode.DETECTING) {
                             Toast.makeText(this@PlayActivity, "原生播放失败，尝试网页模式", Toast.LENGTH_SHORT).show()
@@ -250,6 +234,8 @@ class PlayActivity : AppCompatActivity() {
     private fun enterFullscreen() {
         binding.toolbar.visibility = View.GONE
         binding.btnFullscreen.text = "⤡"
+        // 强制横屏
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         // 隐藏系统栏（沉浸模式）
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -264,6 +250,8 @@ class PlayActivity : AppCompatActivity() {
     private fun exitFullscreen() {
         binding.toolbar.visibility = View.VISIBLE
         binding.btnFullscreen.text = "⛶"
+        // 恢复竖屏
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
     }
 
@@ -328,7 +316,7 @@ class PlayActivity : AppCompatActivity() {
         }
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         // 保持全屏状态时不显示工具栏
         if (isFullscreen) binding.toolbar.visibility = View.GONE
