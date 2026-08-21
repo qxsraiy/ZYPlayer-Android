@@ -1,6 +1,7 @@
 package com.zyplayer.app.ui.play
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -13,10 +14,12 @@ import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -27,6 +30,11 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.zyplayer.app.R
 import com.zyplayer.app.databinding.ActivityPlayBinding
+import com.zyplayer.app.util.M3u8Downloader
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -255,18 +263,25 @@ class PlayActivity : AppCompatActivity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
     }
 
-    /** 使用系统 DownloadManager 下载视频 */
+    /** 使用系统 DownloadManager 下载视频（支持 m3u8 分片下载与合并） */
     private fun startDownload() {
         if (playUrl.isEmpty()) {
             Toast.makeText(this, R.string.play_error, Toast.LENGTH_SHORT).show()
             return
         }
-        // 只支持直链下载（m3u8 需要分段合并，不支持系统下载器）
         val lower = playUrl.lowercase()
+        val name = intent.getStringExtra(EXTRA_NAME) ?: "video"
+
         if (lower.contains(".m3u8")) {
-            Toast.makeText(this, "m3u8 流媒体暂不支持下载", Toast.LENGTH_LONG).show()
-            return
+            // m3u8 用分片流下载器
+            showDownloadProgress(name)
+        } else {
+            // 直链用系统 DownloadManager
+            downloadDirect()
         }
+    }
+
+    private fun downloadDirect() {
         try {
             val fileName = (intent.getStringExtra(EXTRA_NAME) ?: "video").replace("/", "_") +
                 "_" + System.currentTimeMillis() + ".mp4"
@@ -278,10 +293,57 @@ class PlayActivity : AppCompatActivity() {
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
             downloadManager.enqueue(request)
-            Toast.makeText(this, R.string.download_success, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.download_started, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 显示 m3u8 下载进度对话框，在后台下载所有分片并合并 */
+    @SuppressLint("SetTextI18n")
+    private fun showDownloadProgress(videoName: String) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("下载中")
+            .setCancelable(false)
+            .create()
+
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        progressBar.max = 100
+        progressBar.progress = 0
+        val tvMsg = TextView(this).apply {
+            text = "正在解析视频分片..."
+            setPadding(40, 20, 40, 10)
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(tvMsg)
+            addView(progressBar)
+            setPadding(40, 20, 40, 30)
+        }
+        dialog.setView(layout)
+        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "后台下载") { _, _ -> dialog.dismiss() }
+        dialog.show()
+
+        CoroutineScope(Dispatchers.Main).launch {
+            val result = M3u8Downloader.download(
+                context = this@PlayActivity,
+                url = playUrl,
+                title = videoName,
+                onProgress = { done, total ->
+                    tvMsg.text = "下载中: $done / $total 分片"
+                    progressBar.max = total
+                    progressBar.progress = done
+                }
+            )
+            result?.let {
+                tvMsg.text = "下载完成: ${it.fileName}\n(${it.fileSize / 1024} KB)"
+                Toast.makeText(this@PlayActivity, "下载完成: ${it.fileName}", Toast.LENGTH_LONG).show()
+            } ?: run {
+                tvMsg.text = "下载失败，请重试"
+                Toast.makeText(this@PlayActivity, "下载失败", Toast.LENGTH_SHORT).show()
+            }
+            dialog.setButton(AlertDialog.BUTTON_POSITIVE, "确定") { _, _ -> dialog.dismiss() }
         }
     }
 

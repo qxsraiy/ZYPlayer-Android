@@ -16,6 +16,7 @@
     <string name="download">下载</string>
     <string name="downloading">正在下载…</string>
     <string name="download_success">下载成功，请在通知栏查看</string>
+    <string name="download_started">已开始下载</string>
     <string name="download_failed">下载失败</string>
     <string name="fullscreen">全屏</string>
     <string name="exit_fullscreen">退出全屏</string>
