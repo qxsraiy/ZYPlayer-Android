@@ -152,32 +152,37 @@ class SearchFragment : Fragment() {
         updateTags()
     }
 
-    /** 更新标签 */
+    /** 更新标签（无论是否为空都刷新 UI） */
     private fun updateTags() {
-        if (searchHistory.isNotEmpty()) {
-            binding.tagGroup.visibility = View.VISIBLE
-            binding.tvHistoryLabel.visibility = View.VISIBLE
-            binding.tagGroup.removeAllViews()
-            val recent = searchHistory.take(8)
-            for (tag in recent) {
-                val chip = Chip(requireContext()).apply {
-                    text = tag
-                    isClickable = true
-                    isCheckable = false
-                    isCloseIconVisible = true
-                    setOnClickListener {
-                        binding.editSearch.setText(tag)
-                        binding.editSearch.setSelection(tag.length)
-                        doSearch()
-                    }
-                    // 点 X 删除单条历史
-                    setOnCloseIconClickListener {
-                        deleteSearchHistory(tag)
-                        Toast.makeText(requireContext(), "已删除搜索词", Toast.LENGTH_SHORT).show()
-                    }
+        binding.tagGroup.removeAllViews()
+
+        if (searchHistory.isEmpty()) {
+            binding.tagGroup.visibility = View.GONE
+            binding.tvHistoryLabel.visibility = View.GONE
+            return
+        }
+
+        binding.tagGroup.visibility = View.VISIBLE
+        binding.tvHistoryLabel.visibility = View.VISIBLE
+        val recent = searchHistory.take(8)
+        for (tag in recent) {
+            val chip = Chip(requireContext()).apply {
+                text = tag
+                isClickable = true
+                isCheckable = false
+                isCloseIconVisible = true
+                setOnClickListener {
+                    binding.editSearch.setText(tag)
+                    binding.editSearch.setSelection(tag.length)
+                    doSearch()
                 }
-                binding.tagGroup.addView(chip)
+                // 点 X 删除单条历史
+                setOnCloseIconClickListener {
+                    deleteSearchHistory(tag)
+                    Toast.makeText(requireContext(), "已删除搜索词", Toast.LENGTH_SHORT).show()
+                }
             }
+            binding.tagGroup.addView(chip)
         }
     }
 

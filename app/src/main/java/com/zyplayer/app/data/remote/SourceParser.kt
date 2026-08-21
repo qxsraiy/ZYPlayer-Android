@@ -75,18 +75,26 @@ object SourceParser {
     /**
      * 获取首页推荐列表
      */
-    suspend fun getHomeList(api: String, siteKey: String, siteName: String): List<Video> {
+    suspend fun getHomeList(api: String, siteKey: String, siteName: String, page: Int = 1): List<Video> {
         return try {
+            // 随机页码，从第2页开始（避免永远是前几个）
+            val pg = if (page < 2) (2..50).random() else page
             // 尝试 ac=list 和 ac=videolist 两种参数
-            val url = buildUrl(api, mapOf("ac" to "list", "pg" to "1", "pagesize" to "20"))
+            val url = buildUrl(api, mapOf("ac" to "list", "pg" to pg.toString(), "pagesize" to "20"))
             val json = requestJson(url)
             val videos = parseVodList(json, siteKey, siteName, api)
             if (videos.isNotEmpty()) return videos
 
             // 如果 ac=list 没数据，尝试 ac=videolist（兼容旧版）
-            val url2 = buildUrl(api, mapOf("ac" to "videolist", "pg" to "1", "pagesize" to "20"))
+            val url2 = buildUrl(api, mapOf("ac" to "videolist", "pg" to pg.toString(), "pagesize" to "20"))
             val json2 = requestJson(url2)
-            parseVodList(json2, siteKey, siteName, api)
+            val videos2 = parseVodList(json2, siteKey, siteName, api)
+            if (videos2.isNotEmpty()) return videos2
+
+            // 随机页没数据，回退到第1页
+            val url3 = buildUrl(api, mapOf("ac" to "list", "pg" to "1", "pagesize" to "20"))
+            val json3 = requestJson(url3)
+            parseVodList(json3, siteKey, siteName, api)
         } catch (e: Exception) {
             Log.e(TAG, "[请求异常] ${e.javaClass.simpleName}: ${e.message}", e)
             emptyList()
