@@ -3,10 +3,15 @@ package com.zyplayer.app.ui.detail
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.zyplayer.app.R
 import com.zyplayer.app.data.model.PlayGroup
@@ -22,6 +27,7 @@ class DetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDetailBinding
     private lateinit var viewModel: DetailViewModel
+    private lateinit var episodeAdapter: EpisodeAdapter
     private var groups: List<PlayGroup> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,18 +41,15 @@ class DetailActivity : AppCompatActivity() {
         viewModel = ViewModelProvider(this, DetailViewModel.Factory(siteKey, id))
             .get(DetailViewModel::class.java)
 
-        setupEvents()
+        // 选集网格：每行5个
+        episodeAdapter = EpisodeAdapter { item, groupName ->
+            startPlay(item.url, item.label, groupName)
+        }
+        binding.rvEpisodes.layoutManager = GridLayoutManager(this, 5)
+        binding.rvEpisodes.adapter = episodeAdapter
+
         observeData()
         viewModel.loadDetail()
-    }
-
-    private fun setupEvents() {
-        // 选集按钮：点击展开选集弹窗
-        binding.btnEpisodes.setOnClickListener {
-            if (groups.isNotEmpty()) {
-                showEpisodeDialog()
-            }
-        }
     }
 
     private fun observeData() {
@@ -59,7 +62,7 @@ class DetailActivity : AppCompatActivity() {
             binding.tvName.text = detail.video.name
             binding.tvMeta.text = buildString {
                 append(detail.video.type)
-                if (detail.video.year.isNotEmpty()) append(" ·  ").append(detail.video.year)
+                if (detail.video.year.isNotEmpty()) append(" · ").append(detail.video.year)
             }
             binding.tvDesc.text = detail.video.desc.take(200)
             binding.imgPoster.load(detail.video.pic) {
@@ -78,6 +81,16 @@ class DetailActivity : AppCompatActivity() {
                     startPlay(first.url, first.label, firstGroup.name)
                 }
             }
+
+            // 选集网格
+            val episodes = mutableListOf<Pair<PlayItem, String>>()
+            groups.forEach { group ->
+                group.items.forEach { item ->
+                    val label = if (groups.size > 1) "${group.name} ${item.label}" else item.label
+                    episodes.add(Pair(item, label))
+                }
+            }
+            episodeAdapter.submitEpisodes(episodes)
         }
 
         viewModel.error.observe(this) { msg ->
@@ -88,27 +101,6 @@ class DetailActivity : AppCompatActivity() {
         viewModel.loading.observe(this) { loading ->
             binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
         }
-    }
-
-    /** 选集/线路弹窗 */
-    private fun showEpisodeDialog() {
-        val items = mutableListOf<Pair<String, PlayItem>>()
-        groups.forEach { group ->
-            items.add(Pair("【${group.name}】", PlayItem(group.name, "")))
-            group.items.forEach { items.add(Pair(group.name, it)) }
-        }
-
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-        dialog.setTitle(R.string.episode)
-        val names = items.map { it.first + " " + it.second.label }.toTypedArray()
-        dialog.setItems(names) { _, which ->
-            val item = items[which].second
-            if (item.url.isNotEmpty()) {
-                val groupName = items[which].first
-                startPlay(item.url, item.label, groupName)
-            }
-        }
-        dialog.show()
     }
 
     private fun startPlay(url: String, label: String, groupName: String) {
@@ -132,5 +124,37 @@ class DetailActivity : AppCompatActivity() {
             }
             context.startActivity(intent)
         }
+    }
+}
+
+/** 选集网格适配器 */
+class EpisodeAdapter(
+    private val onClick: (PlayItem, String) -> Unit
+) : RecyclerView.Adapter<EpisodeAdapter.EpisodeHolder>() {
+
+    private val episodes = mutableListOf<Pair<PlayItem, String>>()
+
+    fun submitEpisodes(list: List<Pair<PlayItem, String>>) {
+        episodes.clear()
+        episodes.addAll(list)
+        notifyDataSetChanged()
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EpisodeHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_episode, parent, false)
+        return EpisodeHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: EpisodeHolder, position: Int) {
+        val (item, label) = episodes[position]
+        holder.tvLabel.text = label
+        holder.itemView.setOnClickListener { onClick(item, label) }
+    }
+
+    override fun getItemCount(): Int = episodes.size
+
+    inner class EpisodeHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tvLabel: TextView = view.findViewById(R.id.text)
     }
 }
