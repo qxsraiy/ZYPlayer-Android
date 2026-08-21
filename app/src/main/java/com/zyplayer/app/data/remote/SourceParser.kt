@@ -267,14 +267,19 @@ object SourceParser {
     }
 
     private fun parseVodList(json: String, siteKey: String, siteName: String): List<Video> {
-        val root = JSONObject(json)
-        val list = extractListArray(root) ?: return emptyList()
-        val result = mutableListOf<Video>()
-        for (i in 0 until list.length()) {
-            val item = list.optJSONObject(i) ?: continue
-            parseVodItem(item, siteKey, siteName)?.let { result.add(it) }
+        try {
+            val root = JSONObject(json)
+            val list = extractListArray(root) ?: return emptyList()
+            val result = mutableListOf<Video>()
+            for (i in 0 until list.length()) {
+                val item = list.optJSONObject(i) ?: continue
+                parseVodItem(item, siteKey, siteName)?.let { result.add(it) }
+            }
+            return result
+        } catch (e: Exception) {
+            Log.e(TAG, "[解析] 非JSON内容（可能是网页/错误页）: ${e.message}")
+            return emptyList()
         }
-        return result
     }
 
     /** 提取 list 数组（兼容 data 包装） */

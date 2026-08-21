@@ -47,15 +47,18 @@ class VideoRepository(
 
     /**
      * 获取首页随机影片（核心方法）
-     * 并发请求所有启用的源 → 每个源取3条 → 汇总随机打乱 → 取20条
+     * 随机选最多3个源 → 每个源取3~4条 → 汇总随机打乱 → 取10条
      * 并缓存到本地 Room，限制500条
      */
     suspend fun getHomeVideos(): List<Video> = coroutineScope {
         val sources = sourceDao.getEnabledSourcesOnce()
         if (sources.isEmpty()) return@coroutineScope emptyList()
 
-        // 并发请求所有源
-        val deferredList = sources.map { source ->
+        // 随机选最多3个源（减少首页加载时间）
+        val selected = sources.shuffled().take(3)
+
+        // 并发请求选中的源
+        val deferredList = selected.map { source ->
             async {
                 try {
                     SourceParser.getHomeList(source.api, source.id.toString(), source.name)
@@ -65,15 +68,15 @@ class VideoRepository(
             }
         }
 
-        // 收集结果，每个源最多取3条
+        // 收集结果，每个源最多取4条
         val allVideos = mutableListOf<Video>()
         deferredList.forEach { deferred ->
             val videos = deferred.await()
-            allVideos.addAll(videos.take(3))
+            allVideos.addAll(videos.take(4))
         }
 
-        // 随机打乱，取20条
-        val result = allVideos.shuffled().take(20)
+        // 随机打乱，取10条
+        val result = allVideos.shuffled().take(10)
 
         // 缓存到本地（异步）
         if (result.isNotEmpty()) {
@@ -85,36 +88,51 @@ class VideoRepository(
     }
 
     /**
-     * 搜索（多源并行，带进度回调）
+     * 搜索（多源并行，增量返回）
+     * 每完成一个源就发射一次结果，搜到10条后首页立刻展示，后台继续搜
      * @param onProgress 每次一个源完成时回调 (completed, total, found)
+     * @return Flow 每完成一个源发射一次当前全部结果
      */
     suspend fun search(
         keyword: String,
         onProgress: (completed: Int, total: Int, found: Int) -> Unit = { _, _, _ -> }
-    ): List<Video> = coroutineScope {
+    ): Flow<List<Video>> = kotlinx.coroutines.flow.flow {
         val sources = sourceDao.getEnabledSourcesOnce()
-        if (sources.isEmpty()) return@coroutineScope emptyList()
+        if (sources.isEmpty()) {
+            emit(emptyList())
+            return@flow
+        }
         val total = sources.size
 
-        val deferredList = sources.map { source ->
-            async {
-                try {
-                    SourceParser.search(source.api, keyword, source.id.toString(), source.name)
-                } catch (e: Exception) {
-                    emptyList<Video>()
+        // flow 内部没有 coroutineScope，需要手动创建
+        val results = kotlinx.coroutines.coroutineScope {
+            sources.map { source: Source ->
+                async {
+                    try {
+                        SourceParser.search(source.api, keyword, source.id.toString(), source.name)
+                    } catch (e: Exception) {
+                        emptyList<Video>()
+                    }
                 }
-            }
+            }.map { it.await() }
         }
 
         var completed = 0
         val allVideos = mutableListOf<Video>()
-        deferredList.forEach { deferred ->
-            val videos = deferred.await()
-            allVideos.addAll(videos)
+        val seenKeys = mutableSetOf<String>()
+        for (videos in results) {
+            // 去重后加入
+            for (v in videos) {
+                if (v.key !in seenKeys) {
+                    seenKeys.add(v.key)
+                    allVideos.add(v)
+                }
+            }
             completed++
+            val snapshot = allVideos.take(100).toList()
+            emit(snapshot)
             onProgress(completed, total, allVideos.size)
         }
-        allVideos.distinctBy { it.key }.take(100)
     }
 
     /**

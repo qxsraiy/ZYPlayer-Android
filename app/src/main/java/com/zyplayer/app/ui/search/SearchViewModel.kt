@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.zyplayer.app.App
 import com.zyplayer.app.data.model.Video
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -41,9 +42,10 @@ class SearchViewModel : ViewModel() {
     companion object {
         private const val PAGE_SIZE = 50
         private const val MAX_RESULTS = 100
+        private const val EARLY_SHOW_COUNT = 10 // 搜到10条就提前展示
     }
 
-    /** 多源并行搜索 */
+    /** 多源并行搜索（增量返回） */
     fun search(keyword: String) {
         viewModelScope.launch {
             _loading.value = true
@@ -52,14 +54,35 @@ class SearchViewModel : ViewModel() {
             allResults = emptyList()
             displayCount = 0
             _showLoadMore.value = false
+            _results.value = emptyList()
 
             try {
-                allResults = withContext(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     repository.search(keyword) { completed, total, found ->
                         _progress.postValue("正在搜索 $total 个源…已返回 $found 个")
+                    }.collect { snapshot: List<Video> ->
+                        // 每次收到增量结果，更新全部池
+                        allResults = snapshot.take(MAX_RESULTS)
+
+                        // 搜到10条以上就立刻展示前50条
+                        if (allResults.size >= EARLY_SHOW_COUNT && displayCount == 0) {
+                            displayCount = minOf(PAGE_SIZE, allResults.size)
+                            _results.postValue(allResults.take(displayCount))
+                        } else if (displayCount > 0) {
+                            // 已有展示，更新显示量（如果之前显示的少于当前池）
+                            val currentShow = allResults.take(displayCount)
+                            _results.postValue(currentShow)
+                        }
                     }
                 }
-                showNextPage()
+                // 搜索全部完成
+                if (displayCount == 0 && allResults.isNotEmpty()) {
+                    // 结果不足10条也展示
+                    displayCount = allResults.size
+                    _results.value = allResults
+                }
+                _showLoadMore.value = allResults.size > displayCount
+                _progress.value = "共找到 ${allResults.size} 条结果"
             } catch (e: Exception) {
                 _results.value = emptyList()
                 _progress.value = ""
@@ -69,18 +92,13 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    /** 显示下一页 */
-    private fun showNextPage() {
+    /** 加载更多 / 换一批 */
+    fun loadMore() {
+        if (allResults.isEmpty()) return
         val next = allResults.take(displayCount + PAGE_SIZE)
         displayCount = next.size
         _results.value = next
         _showLoadMore.value = allResults.size > displayCount
         _progress.value = "共找到 ${allResults.size} 条结果"
-    }
-
-    /** 加载更多 / 换一批 */
-    fun loadMore() {
-        if (allResults.isEmpty()) return
-        showNextPage()
     }
 }
