@@ -1,8 +1,11 @@
 package com.zyplayer.app.ui.detail
 
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +17,8 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.zyplayer.app.R
+import com.zyplayer.app.data.local.AppDatabase
+import com.zyplayer.app.data.model.Favorite
 import com.zyplayer.app.data.model.PlayGroup
 import com.zyplayer.app.data.model.PlayItem
 import com.zyplayer.app.databinding.ActivityDetailBinding
@@ -22,6 +27,9 @@ import com.zyplayer.app.ui.play.PlayActivity.Companion.EXTRA_NAME
 import com.zyplayer.app.ui.play.PlayActivity.Companion.EXTRA_SITE_KEY
 import com.zyplayer.app.ui.play.PlayActivity.Companion.EXTRA_URL
 import com.zyplayer.app.ui.play.PlayActivity.Companion.EXTRA_VIDEO_ID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class DetailActivity : AppCompatActivity() {
 
@@ -29,6 +37,8 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var viewModel: DetailViewModel
     private lateinit var episodeAdapter: EpisodeAdapter
     private var groups: List<PlayGroup> = emptyList()
+    private var isFavorited = false
+    private var currentVideo: com.zyplayer.app.data.model.Video? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +58,10 @@ class DetailActivity : AppCompatActivity() {
         binding.rvEpisodes.layoutManager = GridLayoutManager(this, 5)
         binding.rvEpisodes.adapter = episodeAdapter
 
+        // 按钮事件
+        binding.btnFavorite.setOnClickListener { toggleFavorite() }
+        binding.btnDownload.setOnClickListener { startDownload() }
+
         observeData()
         viewModel.loadDetail()
     }
@@ -59,6 +73,7 @@ class DetailActivity : AppCompatActivity() {
                 return@observe
             }
             // 填充信息
+            currentVideo = detail.video
             binding.tvName.text = detail.video.name
             binding.tvMeta.text = buildString {
                 append(detail.video.type)
@@ -71,8 +86,15 @@ class DetailActivity : AppCompatActivity() {
                 crossfade(true)
             }
 
+            // 检查是否已收藏
+            CoroutineScope(Dispatchers.IO).launch {
+                val db = AppDatabase.getInstance(this@DetailActivity)
+                val fav = db.favoriteDao().getFavorite(detail.video.key)
+                isFavorited = fav != null
+                runOnUiThread { updateFavoriteButton() }
+            }
+
             groups = detail.groups
-            // 默认播放第一线路的第一集
             val firstGroup = detail.groups.firstOrNull()
             if (firstGroup != null && firstGroup.items.isNotEmpty()) {
                 val first = firstGroup.items.first()
@@ -100,6 +122,74 @@ class DetailActivity : AppCompatActivity() {
         }
         viewModel.loading.observe(this) { loading ->
             binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** 切换收藏状态 */
+    private fun toggleFavorite() {
+        val video = currentVideo ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            val db = AppDatabase.getInstance(this@DetailActivity)
+            if (isFavorited) {
+                db.favoriteDao().deleteByKey(video.key)
+                isFavorited = false
+            } else {
+                db.favoriteDao().insert(Favorite(
+                    key = video.key,
+                    siteKey = video.siteKey,
+                    siteName = video.siteName,
+                    id = video.id,
+                    name = video.name,
+                    pic = video.pic,
+                    note = video.note,
+                    type = video.type,
+                    year = video.year,
+                    desc = video.desc
+                ))
+                isFavorited = true
+            }
+            runOnUiThread {
+                updateFavoriteButton()
+                Toast.makeText(
+                    this@DetailActivity,
+                    if (isFavorited) R.string.favorite_added else R.string.favorite_removed,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    /** 更新收藏按钮文字 */
+    private fun updateFavoriteButton() {
+        binding.btnFavorite.text = if (isFavorited) "♥ 已收藏" else "♡ 收藏"
+    }
+
+    /** 下载视频（直链下载） */
+    private fun startDownload() {
+        val video = currentVideo ?: return
+        val firstUrl = groups.firstOrNull()?.items?.firstOrNull()?.url ?: run {
+            Toast.makeText(this, "暂无播放地址可下载", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (firstUrl.contains(".m3u8", ignoreCase = true)) {
+            Toast.makeText(this, "m3u8 流媒体暂不支持下载", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val fileName = video.name.replace("/", "_") + "_" + System.currentTimeMillis() + ".mp4"
+            val request = DownloadManager.Request(Uri.parse(firstUrl))
+                .setTitle(fileName)
+                .setDescription("ZYPlayer 视频下载")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+            downloadManager.enqueue(request)
+            Toast.makeText(this, R.string.download_success, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
         }
     }
 

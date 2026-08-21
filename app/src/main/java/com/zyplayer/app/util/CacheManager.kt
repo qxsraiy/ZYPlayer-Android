@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
  */
 object CacheManager {
 
-    private const val SOURCE_VERSION = 2 // 源列表版本号：更新内置源时 +1，触发重新导入
+    private const val SOURCE_VERSION = 3 // 源列表版本号：更新内置源时 +1，触发重新导入
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -21,8 +21,20 @@ object CacheManager {
         val repo = App.instance.repository
         val prefs = context.getSharedPreferences("zyplayer_prefs", Context.MODE_PRIVATE)
 
-        // 版本号一致 → 跳过（已初始化过）
-        if (prefs.getInt("source_version", 0) == SOURCE_VERSION) return
+        // 版本号一致且源表非空 → 跳过（已初始化过）
+        if (prefs.getInt("source_version", 0) == SOURCE_VERSION) {
+            // 兼容：数据库被重建（如升级收藏表）导致源表被清空时，仍重新导入
+            scope.launch {
+                try {
+                    if (repo.sourceCount() == 0) {
+                        importDefaultSources(repo, prefs)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            return
+        }
 
         scope.launch {
             try {
@@ -38,6 +50,17 @@ object CacheManager {
                 e.printStackTrace()
             }
         }
+    }
+
+    private suspend fun importDefaultSources(
+        repo: com.zyplayer.app.data.repository.VideoRepository,
+        prefs: android.content.SharedPreferences
+    ) {
+        repo.clearDefaultSources()
+        for ((api, name) in Constants.DEFAULT_SOURCES) {
+            repo.addSource(name, api)
+        }
+        prefs.edit().putInt("source_version", SOURCE_VERSION).apply()
     }
 
     /** 清空所有内置源（仅保留用户在设置页手动添加的） */

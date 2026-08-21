@@ -3,8 +3,8 @@ package com.zyplayer.app
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.zyplayer.app.databinding.ActivityMainBinding
+import com.zyplayer.app.ui.favorites.FavoritesFragment
 import com.zyplayer.app.ui.home.HomeFragment
 import com.zyplayer.app.ui.search.SearchFragment
 import com.zyplayer.app.ui.settings.SettingsFragment
@@ -16,6 +16,7 @@ class MainActivity : AppCompatActivity() {
 
     private val homeFragment by lazy { HomeFragment() }
     private val searchFragment by lazy { SearchFragment() }
+    private val favoritesFragment by lazy { FavoritesFragment() }
     private val settingsFragment by lazy { SettingsFragment() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
             when (item.itemId) {
                 R.id.nav_home -> switchFragment(homeFragment)
                 R.id.nav_search -> switchFragment(searchFragment)
+                R.id.nav_favorites -> switchFragment(favoritesFragment)
                 R.id.nav_settings -> switchFragment(settingsFragment)
             }
             true

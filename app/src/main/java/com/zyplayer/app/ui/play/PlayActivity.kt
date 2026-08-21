@@ -1,19 +1,27 @@
 package com.zyplayer.app.ui.play
 
 import android.annotation.SuppressLint
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,8 +38,12 @@ class PlayActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private var playUrl: String = ""
     private var currentMode: PlayMode = PlayMode.DETECTING
+    private var isFullscreen = false
+    private var lastOrientation = Configuration.ORIENTATION_PORTRAIT
 
     enum class PlayMode { DETECTING, EXO_PLAYER, WEB_VIEW }
+
+    private val downloadManager by lazy { getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +65,8 @@ class PlayActivity : AppCompatActivity() {
         currentMode = detectPlayMode(playUrl)
 
         binding.btnBack.setOnClickListener { finish() }
+        binding.btnFullscreen.setOnClickListener { toggleFullscreen() }
+        binding.btnDownload.setOnClickListener { startDownload() }
 
         when (currentMode) {
             PlayMode.EXO_PLAYER -> {
@@ -79,19 +93,12 @@ class PlayActivity : AppCompatActivity() {
     private fun detectPlayMode(url: String): PlayMode {
         val lower = url.lowercase()
 
-        // 明确是视频格式 → ExoPlayer
         val videoExtensions = listOf(".m3u8", ".mp4", ".ts", ".mkv", ".avi", ".flv", ".webm", ".mov", ".3gp")
-        if (videoExtensions.any { lower.contains(it) }) {
-            return PlayMode.EXO_PLAYER
-        }
+        if (videoExtensions.any { lower.contains(it) }) return PlayMode.EXO_PLAYER
 
-        // 明确是网页格式 → WebView
         val webPatterns = listOf("/player/", "/play/", "?url=", "?vid=", "?v=", ".html", ".php")
-        if (webPatterns.any { lower.contains(it) }) {
-            return PlayMode.WEB_VIEW
-        }
+        if (webPatterns.any { lower.contains(it) }) return PlayMode.WEB_VIEW
 
-        // 不确定 → 先试 ExoPlayer
         return PlayMode.DETECTING
     }
 
@@ -104,8 +111,6 @@ class PlayActivity : AppCompatActivity() {
         binding.playerView.visibility = View.VISIBLE
         binding.tvSwitchMode.text = "切换到网页"
 
-        // 主客户端：系统默认 TLS（指纹接近浏览器，减少 Cloudflare 拦截）
-        // DoH 在播放器里不需要，视频流不经过 DNS 污染
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -131,19 +136,30 @@ class PlayActivity : AppCompatActivity() {
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
 
-                // 播放失败监听 → 自动切 WebView
+                // 监听视频尺寸 → 自动判断横竖屏
                 exoPlayer.addListener(object : Player.Listener {
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        super.onVideoSizeChanged(videoSize)
+                        if (!isFullscreen && videoSize.width > 0 && videoSize.height > 0) {
+                            // 自动根据视频格式旋转：横屏视频→横屏，竖屏视频→竖屏
+                            val landscape = videoSize.width > videoSize.height
+                            val target = if (landscape) Configuration.ORIENTATION_LANDSCAPE
+                            else Configuration.ORIENTATION_PORTRAIT
+                            lastOrientation = target
+                            requestedOrientation = if (landscape) {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            } else {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
+                        }
+                    }
+
                     override fun onPlayerError(error: PlaybackException) {
-                        // 如果当前是 DETECTING 模式，自动切 WebView
                         if (currentMode == PlayMode.DETECTING) {
                             Toast.makeText(this@PlayActivity, "原生播放失败，尝试网页模式", Toast.LENGTH_SHORT).show()
                             switchToWebView()
                         } else {
-                            Toast.makeText(
-                                this@PlayActivity,
-                                "播放失败: ${error.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            Toast.makeText(this@PlayActivity, "播放失败: ${error.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 })
@@ -158,7 +174,6 @@ class PlayActivity : AppCompatActivity() {
         binding.playerView.visibility = View.GONE
         binding.webView.visibility = View.VISIBLE
 
-        // 释放 ExoPlayer
         player?.release()
         player = null
 
@@ -185,9 +200,8 @@ class PlayActivity : AppCompatActivity() {
 
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                // 拦截视频链接，尝试用 ExoPlayer 播放
                 url?.let { checkAndSwitchToExoPlayer(it) }
-                return true // 拦截，不继续加载
+                return true
             }
         }
 
@@ -205,7 +219,7 @@ class PlayActivity : AppCompatActivity() {
         binding.webView.loadUrl(playUrl)
     }
 
-    /** 检查 URL 是否为视频，若是则切换到 ExoPlayer */
+    /** 检查 URL 是否为视频 */
     private fun checkAndSwitchToExoPlayer(url: String) {
         val lower = url.lowercase()
         val videoExtensions = listOf(".m3u8", ".mp4", ".ts", ".mkv")
@@ -214,20 +228,73 @@ class PlayActivity : AppCompatActivity() {
             Toast.makeText(this, "检测到视频地址，切换到原生播放", Toast.LENGTH_SHORT).show()
             setupExoPlayer()
         } else {
-            // 不是视频，继续在 WebView 加载
             binding.webView.loadUrl(url)
         }
     }
 
-    /** 切换到 WebView 模式 */
     private fun switchToWebView() {
         setupWebView()
     }
 
-    /** 切换到 ExoPlayer 模式 */
     private fun switchToExoPlayer() {
         currentMode = PlayMode.EXO_PLAYER
         setupExoPlayer()
+    }
+
+    /** 全屏/退出全屏切换 */
+    private fun toggleFullscreen() {
+        isFullscreen = !isFullscreen
+        if (isFullscreen) enterFullscreen() else exitFullscreen()
+    }
+
+    private fun enterFullscreen() {
+        binding.toolbar.visibility = View.GONE
+        binding.btnFullscreen.text = "⤡"
+        // 隐藏系统栏（沉浸模式）
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+    }
+
+    private fun exitFullscreen() {
+        binding.toolbar.visibility = View.VISIBLE
+        binding.btnFullscreen.text = "⛶"
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+    }
+
+    /** 使用系统 DownloadManager 下载视频 */
+    private fun startDownload() {
+        if (playUrl.isEmpty()) {
+            Toast.makeText(this, R.string.play_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 只支持直链下载（m3u8 需要分段合并，不支持系统下载器）
+        val lower = playUrl.lowercase()
+        if (lower.contains(".m3u8")) {
+            Toast.makeText(this, "m3u8 流媒体暂不支持下载", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            val fileName = (intent.getStringExtra(EXTRA_NAME) ?: "video").replace("/", "_") +
+                "_" + System.currentTimeMillis() + ".mp4"
+            val request = DownloadManager.Request(Uri.parse(playUrl))
+                .setTitle(fileName)
+                .setDescription("ZYPlayer 视频下载")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+            downloadManager.enqueue(request)
+            Toast.makeText(this, R.string.download_success, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onPause() {
@@ -250,11 +317,21 @@ class PlayActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
+        if (isFullscreen) {
+            exitFullscreen()
+            return
+        }
         if (binding.webView.canGoBack() && currentMode == PlayMode.WEB_VIEW) {
             binding.webView.goBack()
         } else {
             super.onBackPressed()
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 保持全屏状态时不显示工具栏
+        if (isFullscreen) binding.toolbar.visibility = View.GONE
     }
 
     companion object {

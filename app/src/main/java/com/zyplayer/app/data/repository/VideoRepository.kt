@@ -38,6 +38,9 @@ class VideoRepository(
     /** 删除源 */
     suspend fun deleteSource(source: Source) = sourceDao.delete(source)
 
+    /** 获取源数量 */
+    suspend fun sourceCount(): Int = sourceDao.count()
+
     /** 清空所有内置源（重新导入时使用） */
     suspend fun clearDefaultSources() = sourceDao.clearAll()
 
