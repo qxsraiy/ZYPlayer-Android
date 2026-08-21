@@ -49,6 +49,14 @@ class SettingsViewModel : ViewModel() {
         }
     }
 
+    fun updateSource(source: Source) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                repository.updateSource(source)
+            }
+        }
+    }
+
     fun clearCache() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {

@@ -3,13 +3,12 @@ package com.zyplayer.app.ui.home
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.zyplayer.app.R
 import com.zyplayer.app.data.model.Video
-import com.zyplayer.app.databinding.ItemVideoCardBinding
+import com.zyplayer.app.databinding.ItemVideoListBinding
 
 /**
- * 视频宫格适配器（3列）
+ * 视频列表适配器（无图片，纯文本列表，加载快）
  */
 class HomeAdapter(
     private val onClick: (Video) -> Unit
@@ -23,7 +22,7 @@ class HomeAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VideoHolder {
-        val binding = ItemVideoCardBinding.inflate(
+        val binding = ItemVideoListBinding.inflate(
             LayoutInflater.from(parent.context), parent, false
         )
         return VideoHolder(binding)
@@ -35,18 +34,13 @@ class HomeAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    inner class VideoHolder(private val binding: ItemVideoCardBinding) :
+    inner class VideoHolder(private val binding: ItemVideoListBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
         fun bind(video: Video) {
             binding.tvName.text = video.name
-            binding.tvNote.text = video.note.ifEmpty { video.year.ifEmpty { video.type } }
             binding.tvSource.text = video.siteName
-            binding.imgPoster.load(video.pic) {
-                placeholder(R.drawable.ic_placeholder)
-                error(R.drawable.ic_placeholder)
-                crossfade(true)
-            }
+            binding.tvNote.text = video.note.ifEmpty { video.year.ifEmpty { video.type } }
             binding.root.setOnClickListener { onClick(video) }
         }
     }

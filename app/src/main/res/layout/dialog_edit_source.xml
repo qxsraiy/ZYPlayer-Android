@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="源名称"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />
+
+    <EditText
+        android:id="@+id/et_edit_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="例如：红牛资源"
+        android:inputType="text"
+        android:textColor="@color/text_primary"
+        android:textSize="15sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="API 接口地址"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />
+
+    <EditText
+        android:id="@+id/et_edit_api"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="https://xxx.com/api.php/provide/vod/"
+        android:inputType="textUri"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
+</LinearLayout>

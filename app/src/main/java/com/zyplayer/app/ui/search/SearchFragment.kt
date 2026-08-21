@@ -9,7 +9,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.chip.Chip
 import com.zyplayer.app.R
 import com.zyplayer.app.databinding.FragmentSearchBinding
@@ -45,7 +45,7 @@ class SearchFragment : Fragment() {
             DetailActivity.start(requireContext(), video)
         }
 
-        binding.recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
+        binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
 
         // 加载搜索历史
@@ -144,6 +144,14 @@ class SearchFragment : Fragment() {
         updateTags()
     }
 
+    /** 删除单条搜索历史 */
+    private fun deleteSearchHistory(keyword: String) {
+        searchHistory.remove(keyword)
+        val prefs = requireContext().getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("history", searchHistory.joinToString(",")).apply()
+        updateTags()
+    }
+
     /** 更新标签 */
     private fun updateTags() {
         if (searchHistory.isNotEmpty()) {
@@ -156,10 +164,16 @@ class SearchFragment : Fragment() {
                     text = tag
                     isClickable = true
                     isCheckable = false
+                    isCloseIconVisible = true
                     setOnClickListener {
                         binding.editSearch.setText(tag)
                         binding.editSearch.setSelection(tag.length)
                         doSearch()
+                    }
+                    // 点 X 删除单条历史
+                    setOnCloseIconClickListener {
+                        deleteSearchHistory(tag)
+                        Toast.makeText(requireContext(), "已删除搜索词", Toast.LENGTH_SHORT).show()
                     }
                 }
                 binding.tagGroup.addView(chip)

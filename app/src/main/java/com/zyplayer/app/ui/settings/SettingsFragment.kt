@@ -37,6 +37,7 @@ class SettingsFragment : Fragment() {
 
         adapter = SourceAdapter(
             onToggle = { source -> viewModel.toggleSource(source) },
+            onEdit = { source -> showEditDialog(source) },
             onDelete = { source ->
                 MaterialAlertDialogBuilder(requireContext())
                     .setTitle(R.string.delete_source)
@@ -84,6 +85,30 @@ class SettingsFragment : Fragment() {
                 }
                 viewModel.addSource(name, api)
                 Toast.makeText(requireContext(), R.string.save, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showEditDialog(source: Source) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_edit_source, null)
+        val etName = dialogView.findViewById<android.widget.EditText>(R.id.et_edit_name)
+        val etApi = dialogView.findViewById<android.widget.EditText>(R.id.et_edit_api)
+        etName.setText(source.name)
+        etApi.setText(source.api)
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("编辑源")
+            .setView(dialogView)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val newName = etName.text?.toString()?.trim().orEmpty()
+                val newApi = etApi.text?.toString()?.trim().orEmpty()
+                if (newName.isEmpty() || newApi.isEmpty()) {
+                    Toast.makeText(requireContext(), "请填写完整信息", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                viewModel.updateSource(source.copy(name = newName, api = newApi))
+                Toast.makeText(requireContext(), "已保存", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()

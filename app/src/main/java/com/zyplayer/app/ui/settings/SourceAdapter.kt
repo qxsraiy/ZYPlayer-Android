@@ -14,6 +14,7 @@ import com.zyplayer.app.databinding.ItemSourceBinding
  */
 class SourceAdapter(
     private val onToggle: (Source) -> Unit,
+    private val onEdit: (Source) -> Unit,
     private val onDelete: (Source) -> Unit
 ) : ListAdapter<Source, SourceAdapter.SourceHolder>(DIFF) {
 
@@ -38,16 +39,15 @@ class SourceAdapter(
                 if (source.enabled) "已启用" else "已禁用"
 
             // 先清除旧监听器，再设状态，最后设新监听器
-            // 避免 RecyclerView 回收复用导致旧监听器触发错误源的切换
             binding.switchEnabled.setOnCheckedChangeListener(null)
             binding.switchEnabled.isChecked = source.enabled
             binding.switchEnabled.setOnCheckedChangeListener { _, isChecked ->
-                // 读取最新的源数据，避免快速操作时用旧值取反导致错乱
                 val latest = getItem(bindingAdapterPosition)
                 if (isChecked != latest.enabled) {
                     onToggle(latest)
                 }
             }
+            binding.btnEdit.setOnClickListener { onEdit(source) }
             binding.btnDelete.setOnClickListener { onDelete(source) }
         }
     }

@@ -7,7 +7,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.zyplayer.app.R
 import com.zyplayer.app.databinding.FragmentHomeBinding
@@ -47,7 +47,7 @@ class HomeFragment : Fragment() {
             DetailActivity.start(requireContext(), video)
         }
 
-        binding.recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
+        binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
 
         // 换一批

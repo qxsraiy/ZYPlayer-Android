@@ -80,13 +80,13 @@ object SourceParser {
             // 尝试 ac=list 和 ac=videolist 两种参数
             val url = buildUrl(api, mapOf("ac" to "list", "pg" to "1", "pagesize" to "20"))
             val json = requestJson(url)
-            val videos = parseVodList(json, siteKey, siteName)
+            val videos = parseVodList(json, siteKey, siteName, api)
             if (videos.isNotEmpty()) return videos
 
             // 如果 ac=list 没数据，尝试 ac=videolist（兼容旧版）
             val url2 = buildUrl(api, mapOf("ac" to "videolist", "pg" to "1", "pagesize" to "20"))
             val json2 = requestJson(url2)
-            parseVodList(json2, siteKey, siteName)
+            parseVodList(json2, siteKey, siteName, api)
         } catch (e: Exception) {
             Log.e(TAG, "[请求异常] ${e.javaClass.simpleName}: ${e.message}", e)
             emptyList()
@@ -101,12 +101,12 @@ object SourceParser {
             // 尝试 ac=list 和 ac=videolist 两种参数
             val url = buildUrl(api, mapOf("ac" to "list", "wd" to keyword, "pagesize" to "30"))
             val json = requestJson(url)
-            val videos = parseVodList(json, siteKey, siteName)
+            val videos = parseVodList(json, siteKey, siteName, api)
             if (videos.isNotEmpty()) return videos
 
             val url2 = buildUrl(api, mapOf("ac" to "videolist", "wd" to keyword, "pagesize" to "30"))
             val json2 = requestJson(url2)
-            parseVodList(json2, siteKey, siteName)
+            parseVodList(json2, siteKey, siteName, api)
         } catch (e: Exception) {
             Log.e(TAG, "[请求异常] ${e.javaClass.simpleName}: ${e.message}", e)
             emptyList()
@@ -122,7 +122,7 @@ object SourceParser {
             val json = requestJson(url)
             val root = JSONObject(json)
             val item = extractFirstListItem(root) ?: return null
-            val video = parseVodItem(item, siteKey, siteName) ?: return null
+            val video = parseVodItem(item, siteKey, siteName, api) ?: return null
 
             val playFrom = item.optString("vod_play_from", "")
             val playUrl = item.optString("vod_play_url", "")
@@ -266,14 +266,14 @@ object SourceParser {
         }
     }
 
-    private fun parseVodList(json: String, siteKey: String, siteName: String): List<Video> {
+    private fun parseVodList(json: String, siteKey: String, siteName: String, baseUrl: String = ""): List<Video> {
         try {
             val root = JSONObject(json)
             val list = extractListArray(root) ?: return emptyList()
             val result = mutableListOf<Video>()
             for (i in 0 until list.length()) {
                 val item = list.optJSONObject(i) ?: continue
-                parseVodItem(item, siteKey, siteName)?.let { result.add(it) }
+                parseVodItem(item, siteKey, siteName, baseUrl)?.let { result.add(it) }
             }
             return result
         } catch (e: Exception) {
@@ -296,11 +296,16 @@ object SourceParser {
     }
 
     /** 解析单个 vod 对象 */
-    private fun parseVodItem(item: org.json.JSONObject, siteKey: String, siteName: String): Video? {
+    private fun parseVodItem(item: org.json.JSONObject, siteKey: String, siteName: String, baseUrl: String = ""): Video? {
         val id = item.optString("vod_id", "")
         val name = item.optString("vod_name", "")
         if (id.isEmpty() || name.isEmpty()) return null
-        val pic = item.optString("vod_pic", "")
+        var pic = item.optString("vod_pic", "")
+        // 相对路径 → 自动拼接域名
+        if (pic.startsWith("/") && baseUrl.isNotEmpty()) {
+            val domain = extractDomain(baseUrl).trimEnd('/')
+            pic = "$domain$pic"
+        }
         val note = item.optString("vod_remarks", "")
         val type = item.optString("type_name", "")
         val year = item.optString("vod_year", "")
