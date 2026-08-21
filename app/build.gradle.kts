@@ -17,8 +17,26 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true          // 开启代码混淆/压缩
+            isShrinkResources = true        // 开启资源压缩
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    // ABI 拆分：按 CPU 架构生成独立 APK，大幅缩小体积
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true   // 额外生成一个全架构的通用 APK
+        }
+    }
+
+    // Android App Bundle 配置（上传 Google Play 时自动按架构分发）
+    bundle {
+        abi {
+            enableSplit = true
         }
     }
     compileOptions {
