@@ -1,0 +1,51 @@
+package com.zyplayer.app
+
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.zyplayer.app.databinding.ActivityMainBinding
+import com.zyplayer.app.ui.home.HomeFragment
+import com.zyplayer.app.ui.search.SearchFragment
+import com.zyplayer.app.ui.settings.SettingsFragment
+import com.zyplayer.app.util.CacheManager
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+
+    private val homeFragment by lazy { HomeFragment() }
+    private val searchFragment by lazy { SearchFragment() }
+    private val settingsFragment by lazy { SettingsFragment() }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        // 首次启动初始化默认源
+        CacheManager.ensureDefaultSources(this)
+
+        setupBottomNav()
+        if (savedInstanceState == null) {
+            switchFragment(homeFragment)
+        }
+    }
+
+    private fun setupBottomNav() {
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_home -> switchFragment(homeFragment)
+                R.id.nav_search -> switchFragment(searchFragment)
+                R.id.nav_settings -> switchFragment(settingsFragment)
+            }
+            true
+        }
+    }
+
+    private fun switchFragment(fragment: Fragment) {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, fragment)
+            .commit()
+    }
+}
